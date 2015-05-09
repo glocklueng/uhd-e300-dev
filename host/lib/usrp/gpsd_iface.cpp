@@ -40,6 +40,27 @@ namespace uhd { namespace usrp {
 static const size_t TIMEOUT = 240;
 static const size_t CLICK_RATE = 250000;
 
+static std::string nmea_checksum(const std::string &s)
+{
+
+    if ((s.at(0) != '$'))
+        return std::string();
+
+    unsigned char sum = '\0';
+    for (size_t i = 1; i < s.size(); i++)
+        sum ^= static_cast<unsigned char>(s.at(i));
+
+    return str(boost::format("*%02X") % static_cast<int>(sum));
+}
+
+static double deg_to_dm(double angle)
+{
+    double fraction, integer;
+    fraction = std::modf(angle, &integer);
+    return std::floor(angle) * 100 + fraction * 60;
+}
+
+
 class gpsd_iface_impl : public virtual gpsd_iface {
 public:
     gpsd_iface_impl(const std::string &addr, boost::uint16_t port)
@@ -59,7 +80,7 @@ public:
         _bthread.swap(t);
 
 
-        _sensors = boost::assign::list_of("gps_locked")("gps_time")("gps_position");
+        _sensors = boost::assign::list_of("gps_locked")("gps_time")("gps_position")("gps_gprmc");
     }
 
     virtual ~gpsd_iface_impl(void)
@@ -85,6 +106,9 @@ public:
         } else if (key == "gps_time") {
             return sensor_value_t(
                 "GPS epoch time", int(_epoch_time()), "seconds");
+        } else if (key == "gps_gprmc") {
+            return sensor_value_t(
+                "GPRMC", _gps_gprmc(), "");
         } else if (key == "gps_position") {
             return sensor_value_t(
                 "GPS Position", str(
@@ -157,6 +181,45 @@ private: // member functions
             tmp["alt"] = "n/a";
         }
         return tmp;
+    }
+
+    float _zeroize(float x)
+    {
+      return std::isnan(x) ? 0.0 : x;
+    }
+
+    std::string _gps_gprmc(void)
+    {
+        struct tm tm;
+        time_t intfixtime;
+
+        boost::shared_lock<boost::shared_mutex> l(_d_mutex);
+
+        tm.tm_mday = tm.tm_mon = tm.tm_year = 0;
+        tm.tm_hour = tm.tm_min = tm.tm_sec = 0;
+
+        if (std::isnan(_gps_data.fix.time) == 0) {
+            intfixtime = (time_t) _gps_data.fix.time;
+            (void)gmtime_r(&intfixtime, &tm);
+            tm.tm_mon++;
+            tm.tm_year %= 100;
+        }
+        std::string string = str(boost::format(
+           "$GPRMC,%02d%02d%02d,%c,%09.4f,%c,%010.4f,%c,%.4f,%.3f,%02d%02d%02d,,")
+        % tm.tm_hour
+        % tm.tm_min
+        % tm.tm_sec
+        % (_gps_data.status ? 'A' : 'V')
+        % _zeroize(deg_to_dm(std::fabs(_gps_data.fix.latitude)))
+        % ((_gps_data.fix.latitude > 0) ? 'N' : 'S')
+        % _zeroize(deg_to_dm(std::fabs(_gps_data.fix.longitude)))
+        % ((_gps_data.fix.longitude > 0) ? 'E' : 'W')
+        % _zeroize(_gps_data.fix.speed * MPS_TO_KNOTS)
+        % _zeroize(_gps_data.fix.track)
+        % tm.tm_mday % tm.tm_mon % tm.tm_year);
+
+        string.append(nmea_checksum(string));
+        return string;
     }
 
 private: // members
