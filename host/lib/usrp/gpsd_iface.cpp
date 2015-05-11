@@ -48,11 +48,16 @@ public:
     {
         boost::unique_lock<boost::shared_mutex> l(_d_mutex);
 
-        if (gps_open(addr.c_str(), str(boost::format("%u") % port).c_str(), &_gps_data) < 0)
-            throw uhd::runtime_error(str((boost::format("Failed to connect to gpsd: %s") % gps_errstr(errno))));
+        if (gps_open(addr.c_str(),
+            str(boost::format("%u") % port).c_str(),
+            &_gps_data) < 0) {
+            throw uhd::runtime_error(
+                str((boost::format("Failed to connect to gpsd: %s")
+                    % gps_errstr(errno))));
+        }
 
-        /* register for updates, we don't specify a specific device,
-         * therefore no WATCH_DEVICE */
+        // register for updates, we don't specify a specific device,
+        // therefore no WATCH_DEVICE
         gps_stream(&_gps_data, WATCH_ENABLE, NULL);
 
         /* create background thread talking to gpsd */
@@ -60,16 +65,17 @@ public:
         _bthread.swap(t);
 
 
-        _sensors = boost::assign::list_of("gps_locked")("gps_time")("gps_position")("gps_gpgga")("gps_gprmc");
+        _sensors = boost::assign::list_of("gps_locked")("gps_time") \
+            ("gps_position")("gps_gpgga")("gps_gprmc");
     }
 
     virtual ~gpsd_iface_impl(void)
     {
-        /* interrupt the background thread and wait for it to finish */
+        // interrupt the background thread and wait for it to finish
         _bthread.interrupt();
         _bthread.join();
 
-        /* clean up ... */
+        // clean up ...
         {
             boost::unique_lock<boost::shared_mutex> l(_d_mutex);
 
@@ -230,7 +236,7 @@ private: // member functions
         struct tm tm;
         time_t intfixtime;
 
-        // FIXME: not sure about that one
+        // currently not supported, make it blank
         float mag_var = NAN;
 
         boost::shared_lock<boost::shared_mutex> l(_d_mutex);
