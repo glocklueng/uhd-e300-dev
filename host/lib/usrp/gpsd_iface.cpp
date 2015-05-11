@@ -41,27 +41,6 @@ namespace uhd { namespace usrp {
 static const size_t TIMEOUT = 240;
 static const size_t CLICK_RATE = 250000;
 
-static std::string nmea_checksum(const std::string &s)
-{
-
-    if ((s.at(0) != '$'))
-        return std::string();
-
-    unsigned char sum = '\0';
-    for (size_t i = 1; i < s.size(); i++)
-        sum ^= static_cast<unsigned char>(s.at(i));
-
-    return str(boost::format("*%02X") % static_cast<int>(sum));
-}
-
-static double deg_to_dm(double angle)
-{
-    double fraction, integer;
-    fraction = std::modf(angle, &integer);
-    return std::floor(angle) * 100 + fraction * 60;
-}
-
-
 class gpsd_iface_impl : public virtual gpsd_iface {
 public:
     gpsd_iface_impl(const std::string &addr, boost::uint16_t port)
@@ -192,6 +171,25 @@ private: // member functions
       return boost::math::isnan(x) ? 0.0 : x;
     }
 
+    int _nmea_checksum(const std::string &s)
+    {
+        if ((s.at(0) != '$'))
+            return 0;
+
+        boost::uint8_t sum = '\0';
+        for (size_t i = 1; i < s.size(); i++)
+            sum ^= static_cast<boost::uint8_t>(s.at(i));
+
+        return sum;
+    }
+
+    double _deg_to_dm(double angle)
+    {
+        double fraction, integer;
+        fraction = std::modf(angle, &integer);
+        return std::floor(angle) * 100 + fraction * 60;
+    }
+
     std::string _gps_gprmc(void)
     {
         struct tm tm;
@@ -214,15 +212,16 @@ private: // member functions
         % tm.tm_min
         % tm.tm_sec
         % (_gps_data.status ? 'A' : 'V')
-        % _zeroize(deg_to_dm(std::fabs(_gps_data.fix.latitude)))
+        % _zeroize(_deg_to_dm(std::fabs(_gps_data.fix.latitude)))
         % ((_gps_data.fix.latitude > 0) ? 'N' : 'S')
-        % _zeroize(deg_to_dm(std::fabs(_gps_data.fix.longitude)))
+        % _zeroize(_deg_to_dm(std::fabs(_gps_data.fix.longitude)))
         % ((_gps_data.fix.longitude > 0) ? 'E' : 'W')
         % _zeroize(_gps_data.fix.speed * MPS_TO_KNOTS)
         % _zeroize(_gps_data.fix.track)
         % tm.tm_mday % tm.tm_mon % tm.tm_year);
 
-        string.append(nmea_checksum(string));
+        string.append(str(
+            boost::format("*%02X") % _nmea_checksum(string)));
         return string;
     }
 
@@ -244,9 +243,9 @@ private: // member functions
             % tm.tm_hour
             % tm.tm_min
             % tm.tm_sec
-            % deg_to_dm(std::fabs(_gps_data.fix.latitude))
+            % _deg_to_dm(std::fabs(_gps_data.fix.latitude))
             % ((_gps_data.fix.latitude > 0) ? 'N' : 'S')
-            % deg_to_dm(std::fabs(_gps_data.fix.longitude))
+            % _deg_to_dm(std::fabs(_gps_data.fix.longitude))
             % ((_gps_data.fix.longitude > 0) ? 'E' : 'W')
             % _gps_data.status
             % _gps_data.satellites_used);
@@ -277,7 +276,8 @@ private: // member functions
                 % (mag_var > 0 ? "E" : "W")));
         }
 
-        string.append(nmea_checksum(string));//(string.c_str()));
+        string.append(str(
+            boost::format("*%02X") % _nmea_checksum(string)));
 
         return string;
     }
